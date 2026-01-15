@@ -1,0 +1,19 @@
+{
+  "expo": {
+    "name": "NCS Verifier",
+    "slug": "ncs-verifier-app",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0B1F2A"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "plugins": ["expo-camera"],
+    "extra": {
+      "gatewayUrl": "http://127.0.0.1:7001"
+    }
+  }
+}

@@ -1,0 +1,5 @@
+kivy==2.3.0
+camera4kivy==0.3.3
+requests==2.31.0
+pillow==10.2.0
+numpy==1.26.4

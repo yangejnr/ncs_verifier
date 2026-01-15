@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+
+# Node/React Native
+node_modules/
+.expo/
+.expo-shared/
+*.log
+
+# .NET
+bin/
+obj/
+.vs/
+
+# OS
+.DS_Store
+
+# Data/artifacts
+*.db
+backend/ncs_verifier_service/data/
