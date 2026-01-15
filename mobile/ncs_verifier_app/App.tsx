@@ -1,5 +1,16 @@
 import React, { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Dimensions, Image, SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import {
+  ActivityIndicator,
+  Dimensions,
+  Image,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Camera, CameraCapturedPicture } from "expo-camera";
 import * as ImageManipulator from "expo-image-manipulator";
@@ -12,6 +23,11 @@ const DOC_TYPE = process.env.EXPO_PUBLIC_NCS_DOC_TYPE || "NCS_ORIGIN";
 const API_KEY = process.env.EXPO_PUBLIC_NCS_API_KEY || "dev-key";
 const QUEUE_KEY = "ncs_queue_v1";
 const LOGO = require("./assets/branding/ncs_logo.png");
+
+const ADMIN_USERNAME = "admin";
+const ADMIN_PASSWORD = "P@ssword1";
+
+type Screen = "login" | "dashboard" | "scan" | "settings" | "history";
 
 type Finding = {
   category: string;
@@ -41,28 +57,57 @@ type QueuedFrame = {
   createdAt: string;
 };
 
+type HistoryEntry = {
+  id: string;
+  timestamp: string;
+  matchScore: number;
+  tamperRisk: number;
+  confidence: string;
+  source: string;
+};
+
 export default function App() {
   const [permission, requestPermission] = Camera.useCameraPermissions();
   const cameraRef = useRef<Camera | null>(null);
+  const [screen, setScreen] = useState<Screen>("login");
+  const [username, setUsername] = useState("NCS56288");
+  const [password, setPassword] = useState("");
+  const [loginError, setLoginError] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [status, setStatus] = useState("Hold steady…");
   const [busy, setBusy] = useState(false);
   const [stableCount, setStableCount] = useState(0);
   const [sharpnessScores, setSharpnessScores] = useState<number[]>([]);
   const [result, setResult] = useState<VerifyResult | null>(null);
   const [progress, setProgress] = useState(0);
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
 
   useEffect(() => {
     if (!permission) {
       return;
     }
-    if (!permission.granted) {
+    if (screen === "scan" && !permission.granted) {
       requestPermission();
     }
-  }, [permission, requestPermission]);
+  }, [permission, requestPermission, screen]);
 
   useEffect(() => {
+    if (screen !== "scan") {
+      setSharpnessScores([]);
+      setStableCount(0);
+      setBusy(false);
+      setStatus("Hold steady…");
+      setProgress(0);
+    }
+  }, [screen]);
+
+  useEffect(() => {
+    if (screen !== "scan" || !permission?.granted) {
+      return;
+    }
+
     const interval = setInterval(async () => {
-      if (busy || !permission?.granted) {
+      if (busy) {
         return;
       }
       if (!cameraRef.current) {
@@ -72,10 +117,7 @@ export default function App() {
       try {
         const snapshot = await capturePreview(cameraRef.current);
         const score = await computeSharpness(snapshot);
-        setSharpnessScores((prev) => {
-          const next = [...prev, score].slice(-8);
-          return next;
-        });
+        setSharpnessScores((prev) => [...prev, score].slice(-8));
 
         const newScores = [...sharpnessScores, score].slice(-8);
         if (newScores.length >= 6) {
@@ -100,11 +142,35 @@ export default function App() {
     }, 550);
 
     return () => clearInterval(interval);
-  }, [busy, permission, sharpnessScores, stableCount]);
+  }, [busy, permission, sharpnessScores, stableCount, screen]);
 
   useEffect(() => {
     flushQueue();
   }, []);
+
+  const handleLogin = () => {
+    if (username.trim() === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
+      setLoginError("");
+      setPassword("");
+      setScreen("dashboard");
+      return;
+    }
+    setLoginError("Invalid username or password.");
+  };
+
+  const handleLogout = () => {
+    setScreen("login");
+    setUsername("");
+    setPassword("");
+    setLoginError("");
+    setResult(null);
+  };
+
+  const handleClose = () => {
+    setUsername("");
+    setPassword("");
+    setLoginError("");
+  };
 
   const capturePreview = async (camera: Camera) => {
     const snapshot = await camera.takePictureAsync({
@@ -122,6 +188,18 @@ export default function App() {
       original: snapshot,
       preview: resized,
     };
+  };
+
+  const addHistoryEntry = (matchScore: number, tamperRisk: number, confidence: string, source: string) => {
+    const entry: HistoryEntry = {
+      id: `${Date.now()}`,
+      timestamp: new Date().toISOString(),
+      matchScore,
+      tamperRisk,
+      confidence,
+      source,
+    };
+    setHistory((prev) => [entry, ...prev]);
   };
 
   const uploadSnapshot = async (snapshot: { original: CameraCapturedPicture; preview: ImageManipulator.ImageResult }) => {
@@ -167,16 +245,21 @@ export default function App() {
 
       const payload = await response.json();
       const resultPayload = payload.result;
+      const matchScore = resultPayload.summary.match_score;
+      const tamperRisk = resultPayload.summary.tamper_risk_score;
+      const confidence = resultPayload.summary.confidence_band;
+
       setResult({
-        matchScore: resultPayload.summary.match_score,
-        tamperRisk: resultPayload.summary.tamper_risk_score,
-        confidence: resultPayload.summary.confidence_band,
+        matchScore,
+        tamperRisk,
+        confidence,
         disclaimer: resultPayload.summary.disclaimer,
         findings: resultPayload.findings || [],
         imageWidth: snapshot.original.width || 1,
         imageHeight: snapshot.original.height || 1,
         imageUri: snapshot.original.uri,
       });
+      addHistoryEntry(matchScore, tamperRisk, confidence, "live");
       setProgress(100);
       setStatus("Done");
     } catch (err) {
@@ -238,16 +321,21 @@ export default function App() {
         if (response.ok) {
           const payload = await response.json();
           const resultPayload = payload.result;
+          const matchScore = resultPayload.summary.match_score;
+          const tamperRisk = resultPayload.summary.tamper_risk_score;
+          const confidence = resultPayload.summary.confidence_band;
+
           setResult({
-            matchScore: resultPayload.summary.match_score,
-            tamperRisk: resultPayload.summary.tamper_risk_score,
-            confidence: resultPayload.summary.confidence_band,
+            matchScore,
+            tamperRisk,
+            confidence,
             disclaimer: resultPayload.summary.disclaimer,
             findings: resultPayload.findings || [],
             imageWidth: item.width,
             imageHeight: item.height,
             imageUri: item.uri,
           });
+          addHistoryEntry(matchScore, tamperRisk, confidence, "offline");
           setStatus("Queued frame processed");
           setProgress(100);
         }
@@ -271,83 +359,205 @@ export default function App() {
     }
   };
 
-  if (!permission) {
-    return <SafeAreaView style={styles.center}><Text>Requesting camera permission…</Text></SafeAreaView>;
-  }
-
-  if (!permission.granted) {
-    return (
-      <SafeAreaView style={styles.center}>
-        <Text style={styles.permissionText}>Camera access is required.</Text>
-        <TouchableOpacity style={styles.primaryButton} onPress={requestPermission}>
-          <Text style={styles.primaryButtonText}>Grant Permission</Text>
+  const renderHeader = (title: string, subtitle: string, showBack = false) => (
+    <View style={styles.header}>
+      <View style={styles.logoBadge}>
+        <Image source={LOGO} style={styles.logo} resizeMode="contain" />
+      </View>
+      <View style={styles.headerText}>
+        <Text style={styles.title}>{title}</Text>
+        <Text style={styles.subtitle}>{subtitle}</Text>
+      </View>
+      {showBack && (
+        <TouchableOpacity style={styles.backButton} onPress={() => setScreen("dashboard")}>
+          <Text style={styles.backButtonText}>Back</Text>
         </TouchableOpacity>
-      </SafeAreaView>
-    );
-  }
+      )}
+    </View>
+  );
 
-  return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <View style={styles.logoBadge}>
-          <Image source={LOGO} style={styles.logo} resizeMode="contain" />
+  const renderLogin = () => (
+    <SafeAreaView style={styles.loginContainer}>
+      <View style={styles.loginCard}>
+        <View style={styles.loginLogoWrap}>
+          <Image source={LOGO} style={styles.loginLogo} resizeMode="contain" />
         </View>
-        <View>
-          <Text style={styles.title}>NCS Verify</Text>
-          <Text style={styles.subtitle}>Document Authenticity Scanner</Text>
-        </View>
-      </View>
-      <View style={styles.cameraFrame}>
-        <Camera
-          ref={cameraRef}
-          style={styles.camera}
-          ratio="16:9"
+        <Text style={styles.loginTitle}>NCS Verify</Text>
+        <Text style={styles.loginSubtitle}>Secure document verification portal</Text>
+
+        <TextInput
+          style={styles.input}
+          placeholder="Username or Service No"
+          placeholderTextColor="#94A3B8"
+          autoCapitalize="none"
+          value={username}
+          onChangeText={setUsername}
         />
-        <View style={styles.overlay}>
-          <Text style={styles.overlayText}>{status}</Text>
-          {busy && <ActivityIndicator size="small" color="#fff" />}
+        <View style={styles.inputRow}>
+          <TextInput
+            style={styles.inputFlex}
+            placeholder="Password"
+            placeholderTextColor="#94A3B8"
+            secureTextEntry={!showPassword}
+            value={password}
+            onChangeText={setPassword}
+          />
+          <TouchableOpacity style={styles.eyeButton} onPress={() => setShowPassword((prev) => !prev)}>
+            <Text style={styles.eyeButtonText}>{showPassword ? "Hide" : "Show"}</Text>
+          </TouchableOpacity>
         </View>
-      </View>
-
-      <View style={styles.panel}>
-        <View style={styles.progressBar}>
-          <View style={[styles.progressFill, { width: `${progress}%` }]} />
-        </View>
-
-        {result ? (
-          <View>
-            <Text style={styles.resultTitle}>Result</Text>
-            <Text style={styles.resultLine}>Template match: {result.matchScore.toFixed(1)}%</Text>
-            <Text style={styles.resultLine}>Tamper risk: {result.tamperRisk.toFixed(1)}%</Text>
-            <Text style={styles.resultLine}>Confidence: {result.confidence}</Text>
-            <Text style={styles.disclaimer}>{result.disclaimer}</Text>
-
-            <View style={styles.previewContainer}>
-              <Image source={{ uri: result.imageUri }} style={styles.previewImage} />
-              {result.findings.slice(0, 6).map((finding, index) => (
-                <View
-                  key={`${finding.category}-${index}`}
-                  style={mapFindingBox(finding.bbox, result.imageWidth, result.imageHeight)}
-                />
-              ))}
-            </View>
-
-            {result.findings.slice(0, 6).map((finding, index) => (
-              <Text key={`${finding.category}-${index}`} style={styles.findingLine}>
-                {finding.category.toUpperCase()}: {finding.message} ({finding.severity})
-              </Text>
-            ))}
-          </View>
-        ) : (
-          <Text style={styles.resultPlaceholder}>Waiting for scan result…</Text>
-        )}
-
-        <TouchableOpacity style={styles.secondaryButton} onPress={flushQueue}>
-          <Text style={styles.secondaryButtonText}>Retry queued uploads</Text>
+        {loginError ? <Text style={styles.errorText}>{loginError}</Text> : null}
+        <TouchableOpacity style={styles.primaryButton} onPress={handleLogin}>
+          <Text style={styles.primaryButtonText}>Login</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.closeButton} onPress={handleClose}>
+          <Text style={styles.closeButtonText}>Close</Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>
   );
+
+  const renderDashboard = () => (
+    <SafeAreaView style={styles.container}>
+      {renderHeader("NCS Verify", "Document Authenticity Scanner")}
+      <View style={styles.dashboardPanel}>
+        <Text style={styles.sectionTitle}>Quick Actions</Text>
+        <View style={styles.actionGrid}>
+          <TouchableOpacity style={styles.actionButton} onPress={() => setScreen("scan")}>
+            <Text style={styles.actionText}>New Scan</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.actionButton} onPress={() => setScreen("history")}>
+            <Text style={styles.actionText}>Scan History</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.actionButton} onPress={() => setScreen("settings")}>
+            <Text style={styles.actionText}>Account Settings</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.actionButton, styles.logoutButton]} onPress={handleLogout}>
+            <Text style={styles.logoutText}>Logout</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </SafeAreaView>
+  );
+
+  const renderSettings = () => (
+    <SafeAreaView style={styles.container}>
+      {renderHeader("Account Settings", "Manage your access", true)}
+      <View style={styles.contentCard}>
+        <Text style={styles.sectionTitle}>Profile</Text>
+        <Text style={styles.resultLine}>Signed in as: {ADMIN_USERNAME}</Text>
+        <Text style={styles.disclaimer}>Credential management will be integrated with enterprise SSO.</Text>
+      </View>
+    </SafeAreaView>
+  );
+
+  const renderHistory = () => (
+    <SafeAreaView style={styles.container}>
+      {renderHeader("Scan History", "Recent verification sessions", true)}
+      <ScrollView contentContainerStyle={styles.historyList}>
+        {history.length === 0 ? (
+          <Text style={styles.resultPlaceholder}>No scans yet.</Text>
+        ) : (
+          history.map((entry) => (
+            <View key={entry.id} style={styles.historyCard}>
+              <Text style={styles.historyTitle}>Session {entry.id}</Text>
+              <Text style={styles.historyMeta}>Time: {new Date(entry.timestamp).toLocaleString()}</Text>
+              <Text style={styles.historyMeta}>Source: {entry.source}</Text>
+              <Text style={styles.historyMeta}>Match: {entry.matchScore.toFixed(1)}% | Risk: {entry.tamperRisk.toFixed(1)}%</Text>
+              <Text style={styles.historyMeta}>Confidence: {entry.confidence}</Text>
+            </View>
+          ))
+        )}
+      </ScrollView>
+    </SafeAreaView>
+  );
+
+  const renderScan = () => {
+    if (!permission) {
+      return (
+        <SafeAreaView style={styles.center}>
+          <Text style={styles.permissionText}>Requesting camera permission…</Text>
+        </SafeAreaView>
+      );
+    }
+
+    if (!permission.granted) {
+      return (
+        <SafeAreaView style={styles.center}>
+          <Text style={styles.permissionText}>Camera access is required.</Text>
+          <TouchableOpacity style={styles.primaryButton} onPress={requestPermission}>
+            <Text style={styles.primaryButtonText}>Grant Permission</Text>
+          </TouchableOpacity>
+        </SafeAreaView>
+      );
+    }
+
+    return (
+      <SafeAreaView style={styles.container}>
+        {renderHeader("New Scan", "Align the document inside the frame", true)}
+        <View style={styles.cameraFrame}>
+          <Camera ref={cameraRef} style={styles.camera} ratio="16:9" />
+          <View style={styles.overlay}>
+            <Text style={styles.overlayText}>{status}</Text>
+            {busy && <ActivityIndicator size="small" color="#fff" />}
+          </View>
+        </View>
+
+        <View style={styles.panel}>
+          <View style={styles.progressBar}>
+            <View style={[styles.progressFill, { width: `${progress}%` }]} />
+          </View>
+
+          {result ? (
+            <View>
+              <Text style={styles.resultTitle}>Result</Text>
+              <Text style={styles.resultLine}>Template match: {result.matchScore.toFixed(1)}%</Text>
+              <Text style={styles.resultLine}>Tamper risk: {result.tamperRisk.toFixed(1)}%</Text>
+              <Text style={styles.resultLine}>Confidence: {result.confidence}</Text>
+              <Text style={styles.disclaimer}>{result.disclaimer}</Text>
+
+              <View style={styles.previewContainer}>
+                <Image source={{ uri: result.imageUri }} style={styles.previewImage} />
+                {result.findings.slice(0, 6).map((finding, index) => (
+                  <View key={`${finding.category}-${index}`} style={mapFindingBox(finding.bbox, result.imageWidth, result.imageHeight)} />
+                ))}
+              </View>
+
+              {result.findings.slice(0, 6).map((finding, index) => (
+                <Text key={`${finding.category}-${index}`} style={styles.findingLine}>
+                  {finding.category.toUpperCase()}: {finding.message} ({finding.severity})
+                </Text>
+              ))}
+            </View>
+          ) : (
+            <Text style={styles.resultPlaceholder}>Waiting for scan result…</Text>
+          )}
+
+          <TouchableOpacity style={styles.secondaryButton} onPress={flushQueue}>
+            <Text style={styles.secondaryButtonText}>Retry queued uploads</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  };
+
+  if (screen === "login") {
+    return renderLogin();
+  }
+
+  if (screen === "dashboard") {
+    return renderDashboard();
+  }
+
+  if (screen === "settings") {
+    return renderSettings();
+  }
+
+  if (screen === "history") {
+    return renderHistory();
+  }
+
+  return renderScan();
 }
 
 const mapFindingBox = (bbox: number[], imgWidth: number, imgHeight: number) => {
@@ -409,12 +619,103 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#0B1F2A",
   },
+  loginContainer: {
+    flex: 1,
+    backgroundColor: "#DFF6E0",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 24,
+  },
+  loginCard: {
+    width: "100%",
+    backgroundColor: "#E5E7EB",
+    borderRadius: 18,
+    padding: 24,
+    gap: 12,
+    alignItems: "center",
+  },
+  loginLogoWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: 18,
+    backgroundColor: "#F8FAFC",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  loginLogo: {
+    width: 48,
+    height: 48,
+  },
+  loginTitle: {
+    color: "#0B1F2A",
+    fontSize: 22,
+    fontWeight: "700",
+    textAlign: "center",
+  },
+  loginSubtitle: {
+    color: "#4B5563",
+    fontSize: 13,
+    textAlign: "center",
+  },
+  input: {
+    width: "100%",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    color: "#0B1F2A",
+    borderWidth: 1,
+    borderColor: "#CBD5E1",
+  },
+  inputRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    width: "100%",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#CBD5E1",
+    paddingHorizontal: 12,
+  },
+  inputFlex: {
+    flex: 1,
+    paddingVertical: 10,
+    color: "#0B1F2A",
+  },
+  eyeButton: {
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+  },
+  eyeButtonText: {
+    color: "#0B1F2A",
+    fontWeight: "600",
+    fontSize: 12,
+  },
+  errorText: {
+    color: "#F87171",
+    alignSelf: "flex-start",
+  },
   header: {
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 16,
     paddingTop: 12,
     gap: 12,
+  },
+  headerText: {
+    flex: 1,
+  },
+  backButton: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#38BDF8",
+  },
+  backButtonText: {
+    color: "#38BDF8",
+    fontSize: 12,
+    fontWeight: "600",
   },
   logoBadge: {
     width: 56,
@@ -525,11 +826,26 @@ const styles = StyleSheet.create({
   primaryButton: {
     backgroundColor: "#38BDF8",
     paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingVertical: 12,
     borderRadius: 8,
+    alignItems: "center",
+    width: "100%",
   },
   primaryButtonText: {
     color: "#0B1F2A",
+    fontWeight: "600",
+  },
+  closeButton: {
+    borderWidth: 1,
+    borderColor: "#94A3B8",
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    alignItems: "center",
+    width: "100%",
+  },
+  closeButtonText: {
+    color: "#475569",
     fontWeight: "600",
   },
   secondaryButton: {
@@ -542,5 +858,64 @@ const styles = StyleSheet.create({
   },
   secondaryButtonText: {
     color: "#38BDF8",
+  },
+  dashboardPanel: {
+    flex: 1,
+    padding: 16,
+  },
+  sectionTitle: {
+    color: "#F8FAFC",
+    fontSize: 16,
+    fontWeight: "600",
+    marginBottom: 12,
+  },
+  actionGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+  },
+  actionButton: {
+    flexBasis: "48%",
+    backgroundColor: "#111827",
+    borderRadius: 12,
+    paddingVertical: 16,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: "#1F2937",
+  },
+  actionText: {
+    color: "#E2E8F0",
+    fontWeight: "600",
+  },
+  logoutButton: {
+    borderColor: "#F25C54",
+  },
+  logoutText: {
+    color: "#F25C54",
+    fontWeight: "600",
+  },
+  contentCard: {
+    margin: 16,
+    padding: 16,
+    borderRadius: 14,
+    backgroundColor: "#0F172A",
+  },
+  historyList: {
+    padding: 16,
+    gap: 12,
+  },
+  historyCard: {
+    backgroundColor: "#0F172A",
+    borderRadius: 14,
+    padding: 14,
+  },
+  historyTitle: {
+    color: "#F8FAFC",
+    fontWeight: "600",
+  },
+  historyMeta: {
+    color: "#94A3B8",
+    fontSize: 12,
+    marginTop: 4,
   },
 });
