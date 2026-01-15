@@ -21,3 +21,6 @@ obj/
 # Data/artifacts
 *.db
 backend/ncs_verifier_service/data/
+
+# Env
+.env
