@@ -5,9 +5,10 @@
   "main": "node_modules/expo/AppEntry.js",
   "scripts": {
     "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
-    "web": "expo start --web"
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "web": "expo start --web",
+    "postinstall": "python3 scripts/patch-expo-gradle.py"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "1.22.3",

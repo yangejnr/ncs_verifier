@@ -24,3 +24,14 @@ backend/ncs_verifier_service/data/
 
 # Env
 .env
+mobile/ncs_verifier_app/android/.env
+
+# Android signing
+*.keystore
+
+# Mobile native build outputs
+mobile/ncs_verifier_app/android/.gradle/
+mobile/ncs_verifier_app/android/**/build/
+mobile/ncs_verifier_app/ios/Pods/
+mobile/ncs_verifier_app/ios/build/
+mobile/ncs_verifier_app/ios/DerivedData/

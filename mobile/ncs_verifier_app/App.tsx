@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Alert, Dimensions, Image, SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Dimensions, Image, SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Camera, CameraCapturedPicture } from "expo-camera";
 import * as ImageManipulator from "expo-image-manipulator";
@@ -11,6 +11,7 @@ const GATEWAY_URL = process.env.EXPO_PUBLIC_NCS_GATEWAY_URL || Constants.expoCon
 const DOC_TYPE = process.env.EXPO_PUBLIC_NCS_DOC_TYPE || "NCS_ORIGIN";
 const API_KEY = process.env.EXPO_PUBLIC_NCS_API_KEY || "dev-key";
 const QUEUE_KEY = "ncs_queue_v1";
+const LOGO = require("./assets/branding/ncs_logo.png");
 
 type Finding = {
   category: string;
@@ -287,6 +288,15 @@ export default function App() {
 
   return (
     <SafeAreaView style={styles.container}>
+      <View style={styles.header}>
+        <View style={styles.logoBadge}>
+          <Image source={LOGO} style={styles.logo} resizeMode="contain" />
+        </View>
+        <View>
+          <Text style={styles.title}>NCS Verify</Text>
+          <Text style={styles.subtitle}>Document Authenticity Scanner</Text>
+        </View>
+      </View>
       <View style={styles.cameraFrame}>
         <Camera
           ref={cameraRef}
@@ -398,6 +408,35 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#0B1F2A",
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    gap: 12,
+  },
+  logoBadge: {
+    width: 56,
+    height: 56,
+    borderRadius: 14,
+    backgroundColor: "#F8FAFC",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  logo: {
+    width: 40,
+    height: 40,
+  },
+  title: {
+    color: "#F8FAFC",
+    fontSize: 20,
+    fontWeight: "700",
+  },
+  subtitle: {
+    color: "#94A3B8",
+    fontSize: 12,
+    marginTop: 2,
   },
   center: {
     flex: 1,

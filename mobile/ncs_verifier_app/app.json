@@ -1,19 +1,37 @@
 {
   "expo": {
-    "name": "NCS Verifier",
-    "slug": "ncs-verifier-app",
+    "name": "NCS Verify",
+    "slug": "ncs-verify",
     "version": "0.1.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/branding/ncs_logo.png",
     "splash": {
-      "image": "./assets/splash.png",
+      "image": "./assets/branding/ncs_logo.png",
       "resizeMode": "contain",
       "backgroundColor": "#0B1F2A"
     },
-    "assetBundlePatterns": ["**/*"],
-    "plugins": ["expo-camera"],
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/branding/ncs_logo.png",
+        "backgroundColor": "#0B1F2A"
+      },
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
+      ],
+      "package": "com.yangejnr.ncsverify"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "plugins": [
+      "expo-camera"
+    ],
     "extra": {
       "gatewayUrl": "http://127.0.0.1:7001"
+    },
+    "ios": {
+      "bundleIdentifier": "com.yangejnr.ncsverify"
     }
   }
 }
